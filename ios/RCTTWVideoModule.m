@@ -61,12 +61,13 @@ TVIVideoFormat *RCTTWVideoModuleCameraSourceSelectVideoFormatBySize(AVCaptureDev
 }
 
 
-@interface RCTTWVideoModule () <TVIRemoteDataTrackDelegate, TVIRemoteParticipantDelegate, TVIRoomDelegate, TVICameraSourceDelegate, TVILocalParticipantDelegate>
+@interface RCTTWVideoModule () <TVIRemoteDataTrackDelegate, TVIRemoteParticipantDelegate, TVIRoomDelegate, TVICameraSourceDelegate, TVILocalParticipantDelegate, TVIAppScreenSourceDelegate>
 
 @property (strong, nonatomic) TVICameraSource *camera;
 @property (strong, nonatomic) TVILocalVideoTrack* localVideoTrack;
 @property (strong, nonatomic) TVILocalAudioTrack* localAudioTrack;
 @property (strong, nonatomic) TVILocalDataTrack* localDataTrack;
+@property (strong, nonatomic) TVIAppScreenSource *screen;
 @property (strong, nonatomic) TVILocalParticipant* localParticipant;
 @property (strong, nonatomic) TVIRoom *room;
 @property (nonatomic) BOOL listening;
@@ -161,6 +162,29 @@ RCT_EXPORT_METHOD(setRemoteAudioPlayback:(NSString *)participantSid enabled:(BOO
         for(TVIRemoteAudioTrackPublication *remoteAudioTrack in trackPublications) {
             [remoteAudioTrack.remoteTrack setPlaybackEnabled:enabled];
         }
+    }
+}
+
+RCT_EXPORT_METHOD(toggleScreenSharing: (BOOL) value) {
+    if (value) {
+    TVIAppScreenSourceOptions *options = [TVIAppScreenSourceOptions optionsWithBlock:^(TVIAppScreenSourceOptionsBuilder * _Nonnull builder) {
+
+    }];
+    self.screen = [[TVIAppScreenSource alloc] initWithOptions:options delegate:self];
+    if (self.screen == nil) {
+        return;
+    }
+    self.localVideoTrack = [TVILocalVideoTrack trackWithSource:self.screen enabled:YES name:@"screen"];
+    if(self.localVideoTrack != nil){
+      TVILocalParticipant *localParticipant = self.room.localParticipant;
+      [localParticipant publishVideoTrack:self.localVideoTrack];
+    }
+    [self.screen startCapture];
+        
+    } else {
+        [self unpublishLocalVideo];
+            [self.screen stopCapture];
+        self.localVideoTrack = nil;
     }
 }
 
