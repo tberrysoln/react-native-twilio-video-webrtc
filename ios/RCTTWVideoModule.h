@@ -8,7 +8,7 @@
 
 #import <React/RCTBridgeModule.h>
 #import <React/RCTEventEmitter.h>
-
+#import <ReplayKit/ReplayKit.h>
 #import <TwilioVideo/TwilioVideo.h>
 
 @interface RCTTWVideoModule : RCTEventEmitter <RCTBridgeModule>
