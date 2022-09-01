@@ -67,7 +67,6 @@ TVIVideoFormat *RCTTWVideoModuleCameraSourceSelectVideoFormatBySize(AVCaptureDev
 @property (strong, nonatomic) TVILocalVideoTrack* localVideoTrack;
 @property (strong, nonatomic) TVILocalAudioTrack* localAudioTrack;
 @property (strong, nonatomic) TVILocalDataTrack* localDataTrack;
-@property (strong, nonatomic) TVIAppScreenSource *screen;
 @property (strong, nonatomic) TVILocalParticipant* localParticipant;
 @property (strong, nonatomic) TVIRoom *room;
 @property (nonatomic) BOOL listening;
@@ -151,6 +150,24 @@ RCT_EXPORT_MODULE();
   }
 }
 
+- (void) showErrorAlert: (NSString *) message {
+    UIAlertController *alertController = [UIAlertController alertControllerWithTitle:@"Error" message: message preferredStyle:UIAlertControllerStyleAlert];
+    UIAlertAction *actionOk = [UIAlertAction actionWithTitle:@"Ok"
+                                                       style:UIAlertActionStyleDefault
+                                                     handler:nil];
+    [alertController addAction:actionOk];
+    id rootViewController = [UIApplication sharedApplication].delegate.window.rootViewController;
+    if([rootViewController isKindOfClass:[UINavigationController class]])
+    {
+        rootViewController = ((UINavigationController *)rootViewController).viewControllers.firstObject;
+    }
+    if([rootViewController isKindOfClass:[UITabBarController class]])
+    {
+        rootViewController = ((UITabBarController *)rootViewController).selectedViewController;
+    }
+    [rootViewController presentViewController:alertController animated:YES completion:nil];
+}
+
 RCT_EXPORT_METHOD(changeListenerStatus:(BOOL)value) {
     self.listening = value;
 }
@@ -167,24 +184,30 @@ RCT_EXPORT_METHOD(setRemoteAudioPlayback:(NSString *)participantSid enabled:(BOO
 
 RCT_EXPORT_METHOD(toggleScreenSharing: (BOOL) value) {
     if (value) {
-    TVIAppScreenSourceOptions *options = [TVIAppScreenSourceOptions optionsWithBlock:^(TVIAppScreenSourceOptionsBuilder * _Nonnull builder) {
-
-    }];
-    self.screen = [[TVIAppScreenSource alloc] initWithOptions:options delegate:self];
-    if (self.screen == nil) {
-        return;
-    }
-    self.localVideoTrack = [TVILocalVideoTrack trackWithSource:self.screen enabled:YES name:@"screen"];
-    if(self.localVideoTrack != nil){
-      TVILocalParticipant *localParticipant = self.room.localParticipant;
-      [localParticipant publishVideoTrack:self.localVideoTrack];
-    }
-    [self.screen startCapture];
-        
-    } else {
-        [self unpublishLocalVideo];
-            [self.screen stopCapture];
-        self.localVideoTrack = nil;
+        if (@available(iOS 12.0, *)) {
+            // iOS 13.0 throws an NSInvalidArgumentException when RPSystemBroadcastPickerView is used to start a broadcast.
+           //https://stackoverflow.com/questions/57163212/get-nsinvalidargumentexception-when-trying-to-present-rpsystembroadcastpickervie
+            if (@available (iOS 13.0, *)) {
+                if (@available (iOS 13.1, *)) {
+                    // The issue is resolved in iOS 13.1.
+                } else {
+                    [self showErrorAlert:@"ReplayKit broadcasts can not be started using the broadcast picker on iOS 13.0. Please upgrade to iOS 13.1+, or start a broadcast from the screen recording widget in control center instead."];
+                    return;
+                }
+        }
+        RPSystemBroadcastPickerView *pickerView = [[RPSystemBroadcastPickerView alloc]initWithFrame:CGRectMake(0, 0, 50, 50)];
+        pickerView.translatesAutoresizingMaskIntoConstraints = false;
+        pickerView.autoresizingMask = (UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleRightMargin);
+        pickerView.preferredExtension = @"com.remotesf.oneclickcontractor-staging.ScreenBroadCast";
+         pickerView.hidden = true;
+         pickerView.showsMicrophoneButton = false;
+         SEL buttonPress = NSSelectorFromString(@"buttonPressed:");
+         if ([pickerView respondsToSelector:buttonPress]){
+                 [pickerView performSelector:buttonPress withObject:nil];
+         }
+        } else {
+            [self showErrorAlert: @"Screen sharing needs minimum ios 12 version"];
+        }
     }
 }
 
