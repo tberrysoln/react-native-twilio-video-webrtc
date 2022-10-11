@@ -182,9 +182,8 @@ RCT_EXPORT_METHOD(setRemoteAudioPlayback:(NSString *)participantSid enabled:(BOO
     }
 }
 
-RCT_EXPORT_METHOD(toggleScreenSharing: (BOOL) value) {
-    if (value) {
-        if (@available(iOS 12.0, *)) {
+RCT_EXPORT_METHOD(toggleScreenSharing: (BOOL) value token:(NSString *)token) {
+    if (@available(iOS 12.0, *)) {
             // iOS 13.0 throws an NSInvalidArgumentException when RPSystemBroadcastPickerView is used to start a broadcast.
            //https://stackoverflow.com/questions/57163212/get-nsinvalidargumentexception-when-trying-to-present-rpsystembroadcastpickervie
             if (@available (iOS 13.0, *)) {
@@ -195,10 +194,17 @@ RCT_EXPORT_METHOD(toggleScreenSharing: (BOOL) value) {
                     return;
                 }
         }
+        NSString *appGroupName = (NSString *)[[NSBundle mainBundle] objectForInfoDictionaryKey:@"Twilio_app_groups_key"];
+        if (value) {
+            NSUserDefaults *sharedDefaults = [[NSUserDefaults alloc] initWithSuiteName: appGroupName];
+            [sharedDefaults setObject:token forKey:@"token"];
+            [sharedDefaults synchronize];
+            }
         RPSystemBroadcastPickerView *pickerView = [[RPSystemBroadcastPickerView alloc]initWithFrame:CGRectMake(0, 0, 50, 50)];
         pickerView.translatesAutoresizingMaskIntoConstraints = false;
         pickerView.autoresizingMask = (UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleRightMargin);
-        pickerView.preferredExtension = @"com.remotesf.oneclickcontractor-staging.ScreenBroadCast";
+        NSString *extensionBundleId = [appGroupName stringByReplacingOccurrencesOfString:@"group." withString:@""];
+        pickerView.preferredExtension = extensionBundleId;
          pickerView.hidden = true;
          pickerView.showsMicrophoneButton = false;
          SEL buttonPress = NSSelectorFromString(@"buttonPressed:");
@@ -208,7 +214,6 @@ RCT_EXPORT_METHOD(toggleScreenSharing: (BOOL) value) {
         } else {
             [self showErrorAlert: @"Screen sharing needs minimum ios 12 version"];
         }
-    }
 }
 
 RCT_EXPORT_METHOD(startLocalVideo) {
