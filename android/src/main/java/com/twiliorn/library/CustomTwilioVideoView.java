@@ -21,10 +21,11 @@ import android.media.AudioDeviceInfo;
 import android.media.AudioFocusRequest;
 import android.media.AudioManager;
 import android.os.Build;
+import androidx.annotation.Nullable;
+import androidx.annotation.NonNull;
+import androidx.annotation.StringDef;
 import android.os.Handler;
 import android.os.HandlerThread;
-import android.support.annotation.NonNull;
-import android.support.annotation.StringDef;
 import android.util.Log;
 import android.view.View;
 
@@ -74,7 +75,7 @@ import com.twilio.video.VideoDimensions;
 import com.twilio.video.VideoFormat;
 import com.twilio.video.VideoCodec;
 
-import org.webrtc.voiceengine.WebRtcAudioManager;
+import tvi.webrtc.voiceengine.WebRtcAudioManager;
 
 import tvi.webrtc.Camera1Enumerator;
 import tvi.webrtc.HardwareVideoEncoderFactory;
@@ -747,8 +748,10 @@ public class CustomTwilioVideoView extends View implements LifecycleEventListene
         AudioManager audioManager = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
         if (enabled) {
             audioManager.startBluetoothSco();
+            audioManager.setSpeakerphoneOn(false);
         } else {
             audioManager.stopBluetoothSco();
+            audioManager.setSpeakerphoneOn(true);
         }
     }
 
@@ -758,6 +761,20 @@ public class CustomTwilioVideoView extends View implements LifecycleEventListene
                 for (AudioTrackPublication at : rp.getAudioTracks()) {
                     if (at.getAudioTrack() != null) {
                         ((RemoteAudioTrack) at.getAudioTrack()).enablePlayback(enabled);
+                    }
+                }
+            }
+        }
+    }
+
+    public void setRemoteAudioPlayback(String participant, boolean enabled) {
+        if (room != null) {
+            for (RemoteParticipant rp : room.getRemoteParticipants()) {
+                if (rp.getSid().equals(participant)) {
+                    for (AudioTrackPublication at : rp.getAudioTracks()) {
+                        if (at.getAudioTrack() != null) {
+                            ((RemoteAudioTrack) at.getAudioTrack()).enablePlayback(enabled);
+                        }
                     }
                 }
             }
