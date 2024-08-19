@@ -340,29 +340,6 @@ RCT_EXPORT_METHOD(flipCamera) {
   }
 }
 
-RCT_EXPORT_METHOD(toggleScreenSharing: (BOOL) value) {
-    if (value) {
-       TVIAppScreenSourceOptions *options = [TVIAppScreenSourceOptions optionsWithBlock:^(TVIAppScreenSourceOptionsBuilder * _Nonnull builder) {
-
-       }];
-       self.screen = [[TVIAppScreenSource alloc] initWithOptions:options delegate:self];
-       if (self.screen == nil) {
-           return;
-       }
-       self.localVideoTrack = [TVILocalVideoTrack trackWithSource:self.screen enabled:YES name:@"screen"];
-       if(self.localVideoTrack != nil){
-         TVILocalParticipant *localParticipant = self.room.localParticipant;
-         [localParticipant publishVideoTrack:self.localVideoTrack];
-       }
-       [self.screen startCapture];    
-  } else {
-        [self unpublishLocalVideo];
-        [self.screen stopCapture];
-        self.localVideoTrack = nil;
-       }
-}
-
-
 RCT_EXPORT_METHOD(toggleSoundSetup:(BOOL)speaker) {
   NSError *error = nil;
   kTVIDefaultAVAudioSessionConfigurationBlock();
