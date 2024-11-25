@@ -460,6 +460,18 @@ public class CustomTwilioVideoView extends View implements LifecycleEventListene
             localVideoTrack.release();
             localVideoTrack = null;
         }
+
+        // Stop the screen capturer if it is active
+        if (screenCapturer != null) {
+            try {
+                screenCapturer.stopCapture();
+                Log.d("RNTwilioScreenShare", "Screen capturer stopped.");
+            } catch (Exception e) {
+                Log.e("RNTwilioScreenShare", "Error while stopping screen capturer.", e);
+            } finally {
+                screenCapturer = null; // Clear the reference
+            }
+        }
     }
 
     @Override
