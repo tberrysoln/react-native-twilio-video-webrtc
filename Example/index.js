@@ -55,8 +55,15 @@ const Example = (props) => {
   };
 
   const _onShareButtonPressed = () => {
+    /**
+     * Do not want to change ios implementation
+     */
+    if (Platform.OS === 'ios') {
     twilioVideo.current.toggleScreenSharing(!isSharing);
     setIsSharing(!isSharing);
+    } else {
+      twilioVideo.current.setScreenShareEnabled(!isScreenShareEnabled);
+    }
   };
 
   const _onFlipButtonPress = () => {

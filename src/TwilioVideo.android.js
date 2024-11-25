@@ -41,6 +41,11 @@ const propTypes = {
   onRoomDidConnect: PropTypes.func,
 
   /**
+    * Callback that is called when screen share permission received.
+  */
+  onScreenShareChanged: PropTypes.func,
+
+  /**
    * Callback that is called when connecting to room fails.
    */
   onRoomDidFailToConnect: PropTypes.func,
@@ -167,6 +172,7 @@ const nativeEvents = {
   publishVideo: 13,
   publishAudio: 14,
   setRemoteAudioPlayback: 15,
+  toggleScreenShare: 16,
 };
 
 class CustomTwilioVideoView extends Component {
@@ -218,6 +224,10 @@ class CustomTwilioVideoView extends Component {
 
   disconnect() {
     this.runCommand(nativeEvents.disconnect, []);
+  }
+
+  setScreenShareEnabled (enabled) {
+    this.runCommand(nativeEvents.toggleScreenShare, [enabled])
   }
 
   componentWillUnmount() {
@@ -287,6 +297,7 @@ class CustomTwilioVideoView extends Component {
       "onVideoChanged",
       "onAudioChanged",
       "onRoomDidConnect",
+      'onScreenShareChanged',
       "onRoomDidFailToConnect",
       "onRoomDidDisconnect",
       "onParticipantAddedDataTrack",

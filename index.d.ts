@@ -110,6 +110,7 @@ declare module "react-native-twilio-video-webrtc" {
     onCameraDidStart?: () => void;
     onCameraDidStopRunning?: (err: any) => void;
     onCameraWasInterrupted?: () => void;
+    onScreenShareChanged?: (data: any) => void;
     onDominantSpeakerDidChange?: DominantSpeakerChangedCb;
     onParticipantAddedAudioTrack?: TrackEventCb;
     onParticipantAddedVideoTrack?: TrackEventCb;
@@ -183,6 +184,7 @@ declare module "react-native-twilio-video-webrtc" {
     publishLocalVideo: () => void;
     unpublishLocalVideo: () => void;
     sendString: (message: string) => void;
+    setScreenShareEnabled: (enabled: boolean) => void;
   }
 
   class TwilioVideoLocalView extends React.Component<TwilioVideoLocalViewProps> {}
