@@ -212,7 +212,6 @@ public class CustomTwilioVideoView extends View implements LifecycleEventListene
      */
     private static PatchedVideoView thumbnailVideoView;
     private static LocalVideoTrack localVideoTrack;
-    private static LocalVideoTrack localScreenTrack;
 
     private static CameraCapturer cameraCapturer;
     private static ScreenCapturer screenCapturer;
@@ -241,19 +240,53 @@ public class CustomTwilioVideoView extends View implements LifecycleEventListene
         public void onActivityResult(Activity activity, int requestCode, int resultCode, Intent data) {
             super.onActivityResult(activity, requestCode, resultCode, data);
             if (requestCode == REQUEST_MEDIA_PROJECTION) {
-                Log.d("RNTwilioScreenShare", "Request for the screen capture permission");
                 if (resultCode != Activity.RESULT_OK) {
                     Log.d("RNTwilioScreenShare", "Screen capture permission not granted");
+                    // Notify screen share state change
+                    WritableMap event = new WritableNativeMap();
+                    event.putBoolean("screenShareEnabled", false);
+                    pushEvent(CustomTwilioVideoView.this, ON_SCREEN_SHARE_CHANGED, event);
                 } else {
-                    // Don't start screen sharing if we're already screen sharing
-                    if (isScreenShareEnabled || screenCapturer != null) {
-                        Log.d("RNTwilioScreenShare", "Screen sharing already active, ignoring");
-                        return;
-                    }
-                    
-                    // Create screen capturer with new token
                     try {
-                        // Create new ScreenCapturer instance with fresh token
+                        
+                        // Disable camera video before enabling screen share
+                        if (localVideoTrack != null) {
+                            if (localParticipant != null) {
+                                try {
+                                    localParticipant.unpublishTrack(localVideoTrack);
+                                } catch (Exception e) {
+                                    Log.e("RNTwilioScreenShare", "Error unpublishing video track", e);
+                                }
+                            }
+                            try {
+                                localVideoTrack.release();
+                            } catch (Exception e) {
+                                Log.e("RNTwilioScreenShare", "Error releasing video track", e);
+                            }
+                            localVideoTrack = null;
+                        }
+                        
+                        if (cameraCapturer != null) {
+                            try {
+                                cameraCapturer.stopCapture();
+                            } catch (Exception e) {
+                                Log.e("RNTwilioScreenShare", "Error stopping camera capturer", e);
+                            }
+                            cameraCapturer = null;
+                        }
+                        
+                        // Make sure previous screen capturer is fully cleaned up
+                        if (screenCapturer != null) {
+                            try {
+                                screenCapturer.stopCapture();
+                            } catch (Exception e) {
+                                Log.e("RNTwilioScreenShare", "Error stopping previous screen capturer", e);
+                            }
+                            screenCapturer = null;
+                        }
+                        
+                        // Create new screen capturer with fresh permission data
+                        Log.d("RNTwilioScreenShare", "Creating new ScreenCapturer instance with fresh permission");
                         screenCapturer = new ScreenCapturer(themedReactContext, resultCode, data, new ScreenCapturer.Listener() {
                             @Override
                             public void onFirstFrameAvailable() {
@@ -268,12 +301,36 @@ public class CustomTwilioVideoView extends View implements LifecycleEventListene
                         });
                         
                         if (android.os.Build.VERSION.SDK_INT >= 29) {
+                            if (screenCapturerManager == null) {
+                                screenCapturerManager = new ScreenCapturerManager(getContext());
+                            }
                             screenCapturerManager.startForeground();
                         }
                         
-                        startScreenCapture();
+                        // Start screen capture with high quality format
+                        isScreenShareEnabled = true;
+                        localVideoTrack = LocalVideoTrack.create(getContext(), true, screenCapturer, buildScreenShareVideoFormat());
+                        
+                        if (localVideoTrack != null) {
+                            Log.d("RNTwilioScreenShare", "LocalVideoTrack created successfully");
+                            if (thumbnailVideoView != null) {
+                                localVideoTrack.addSink(thumbnailVideoView);
+                            }
+                            if (localParticipant != null) {
+                                Log.d("RNTwilioScreenShare", "Publishing screen share track to room");
+                                localParticipant.publishTrack(localVideoTrack);
+                            }
+                            
+                            // Notify screen share state change
+                            WritableMap event = new WritableNativeMap();
+                            event.putBoolean("screenShareEnabled", true);
+                            pushEvent(CustomTwilioVideoView.this, ON_SCREEN_SHARE_CHANGED, event);
+                        } else {
+                            Log.e("RNTwilioScreenShare", "Failed to create local video track for screen sharing");
+                            stopScreenCapture();
+                        }
                     } catch (Exception e) {
-                        Log.e("RNTwilioScreenShare", "Error creating screen capturer", e);
+                        Log.e("RNTwilioScreenShare", "Error setting up screen sharing", e);
                         stopScreenCapture();
                     }
                 }
@@ -322,11 +379,7 @@ public class CustomTwilioVideoView extends View implements LifecycleEventListene
     }
 
     private VideoFormat buildScreenShareVideoFormat() {
-        // Use higher resolution and frame rate for screen sharing
-        // Simplify format for compatibility with older SDK versions
-        
         // Use HD resolution (1280x720) with 30fps for screen sharing
-        // This is a good balance between quality and compatibility
         return new VideoFormat(VideoDimensions.HD_720P_VIDEO_DIMENSIONS, 30);
     }
 
@@ -559,10 +612,17 @@ public class CustomTwilioVideoView extends View implements LifecycleEventListene
             
             if (screenCapturer != null) {
                 try {
-                    stopScreenCapture();
+                    screenCapturer.stopCapture();
                 } catch (Exception e) {
                     Log.e("RNTwilioScreenShare", "Error stopping screen capturer", e);
                 }
+                screenCapturer = null;
+                isScreenShareEnabled = false;
+                
+                // Notify screen share state change
+                WritableMap event = new WritableNativeMap();
+                event.putBoolean("screenShareEnabled", false);
+                pushEvent(CustomTwilioVideoView.this, ON_SCREEN_SHARE_CHANGED, event);
             }
         }
     }
@@ -592,12 +652,7 @@ public class CustomTwilioVideoView extends View implements LifecycleEventListene
             localVideoTrack = null;
         }
 
-        if (localScreenTrack != null) {
-            localScreenTrack.release();
-            localScreenTrack = null;
-        }
-
-        if (android.os.Build.VERSION.SDK_INT >= 29) {
+         if (android.os.Build.VERSION.SDK_INT >= 29) {
             screenCapturerManager.unbindService();
         }
 
@@ -609,13 +664,14 @@ public class CustomTwilioVideoView extends View implements LifecycleEventListene
 
         // Quit the data track message thread
         dataTrackMessageThread.quit();
+
+
     }
 
     public void releaseResource() {
         themedReactContext.removeLifecycleEventListener(this);
         room = null;
         localVideoTrack = null;
-        localScreenTrack = null;
         thumbnailVideoView = null;
         cameraCapturer = null;
         screenCapturer = null;
@@ -680,24 +736,10 @@ public class CustomTwilioVideoView extends View implements LifecycleEventListene
             connectOptionsBuilder.videoTracks(Collections.singletonList(localVideoTrack));
         }
 
+        //LocalDataTrack localDataTrack = LocalDataTrack.create(getContext());
+
         if (localDataTrack != null) {
             connectOptionsBuilder.dataTracks(Collections.singletonList(localDataTrack));
-        }
-
-        // Configure for better video quality, but using a simpler approach
-        // that's compatible with older Twilio SDK versions
-        connectOptionsBuilder.enableAutomaticSubscription(true);
-        
-        // Set simple bandwidth profile options compatible with all versions
-        try {
-            // Some Twilio SDK versions might not support these advanced options,
-            // so we'll just set the basic parameters we know will be compatible
-            connectOptionsBuilder.enableNetworkQuality(true);
-            connectOptionsBuilder.networkQualityConfiguration(new NetworkQualityConfiguration(
-                NetworkQualityVerbosity.NETWORK_QUALITY_VERBOSITY_MINIMAL,
-                NetworkQualityVerbosity.NETWORK_QUALITY_VERBOSITY_MINIMAL));
-        } catch (Exception e) {
-            Log.e(TAG, "Some bandwidth options not supported in this SDK version", e);
         }
 
         // H264 Codec Support Detection: https://www.twilio.com/docs/video/managing-codecs
@@ -850,28 +892,62 @@ public class CustomTwilioVideoView extends View implements LifecycleEventListene
         if (room != null) {
             room.disconnect();
         }
+        
+        // Clean up audio
         if (localAudioTrack != null) {
-            localAudioTrack.release();
-            localAudioTrack = null;
-            audioManager.stopBluetoothSco();
+            try {
+                localAudioTrack.release();
+                localAudioTrack = null;
+                audioManager.stopBluetoothSco();
+            } catch (Exception e) {
+                Log.e(TAG, "Error cleaning up audio", e);
+            }
         }
+        
+        // Clean up video
         if (localVideoTrack != null) {
-            localVideoTrack.release();
-            localVideoTrack = null;
+            try {
+                localVideoTrack.release();
+                localVideoTrack = null;
+            } catch (Exception e) {
+                Log.e(TAG, "Error cleaning up video", e);
+            }
         }
-        if (localScreenTrack != null) {
-            localScreenTrack.release();
-            localScreenTrack = null;
-        }
+        
         setAudioFocus(false);
+        
+        // Clean up camera
         if (cameraCapturer != null) {
-            cameraCapturer.stopCapture();
-            cameraCapturer = null;
+            try {
+                cameraCapturer.stopCapture();
+                cameraCapturer = null;
+            } catch (Exception e) {
+                Log.e(TAG, "Error cleaning up camera", e);
+            }
         }
+        
+        // Clean up screen sharing
         if (screenCapturer != null) {
-            screenCapturer.stopCapture();
-            screenCapturer = null;
+            try {
+                screenCapturer.stopCapture();
+                screenCapturer = null;
+            } catch (Exception e) {
+                Log.e(TAG, "Error cleaning up screen capturer", e);
+            }
         }
+        
+        if (screenCapturerManager != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            try {
+                screenCapturerManager.endForeground();
+                screenCapturerManager.unbindService();
+            } catch (Exception e) {
+                Log.e(TAG, "Error cleaning up screen capturer manager", e);
+            }
+        }
+        
+        // Reset screen share state
+        isScreenShareEnabled = false;
+        
     }
 
     // ===== SEND STRING ON DATA TRACK ======================================================================
@@ -914,6 +990,15 @@ public class CustomTwilioVideoView extends View implements LifecycleEventListene
         // Update video enabled state
         isVideoEnabled = enabled;
 
+        // If screen sharing is active, handle differently
+        if (isScreenShareEnabled && screenCapturer != null) {
+            if (!enabled) {
+                // If disabling video while screen sharing, stop screen sharing
+                stopScreenCapture();
+            }
+            return;
+        }
+
         // Handle camera video
         if (enabled) {
             // Enable camera video
@@ -932,7 +1017,7 @@ public class CustomTwilioVideoView extends View implements LifecycleEventListene
             // Ensure video track is enabled and published
             if (localVideoTrack != null) {
                 localVideoTrack.enable(true);
-                if (localParticipant != null && !localParticipant.getLocalVideoTracks().contains(localVideoTrack)) {
+                if (localParticipant != null) {
                     localParticipant.publishTrack(localVideoTrack);
                 }
                 if (thumbnailVideoView != null) {
@@ -956,7 +1041,9 @@ public class CustomTwilioVideoView extends View implements LifecycleEventListene
         }
 
         // Notify about video state change
-        notifyVideoChanged(enabled);
+        WritableMap event = new WritableNativeMap();
+        event.putBoolean("videoEnabled", enabled);
+        pushEvent(CustomTwilioVideoView.this, ON_VIDEO_CHANGED, event);
     }
 
     public void toggleScreenShare(boolean enabled) {
@@ -968,100 +1055,76 @@ public class CustomTwilioVideoView extends View implements LifecycleEventListene
             return;
         }
 
+        // Store previous video state before switching
+        boolean wasVideoEnabled = isVideoEnabled;
+
         if (enabled) {
-            // Only request permission if not already screen sharing
-            if (!isScreenShareEnabled) {
-                // Request screen sharing permission
-                if (android.os.Build.VERSION.SDK_INT >= 29) {
-                    screenCapturerManager.startForeground();
-                }
-                
-                if (mediaProjectionManager == null) {
-                    Log.e(TAG, "Media projection manager is null");
+            // Always request new permission when starting screen share
+            if (mediaProjectionManager == null) {
+                try {
+                    mediaProjectionManager = (MediaProjectionManager) currentActivity.getApplication().getSystemService(Context.MEDIA_PROJECTION_SERVICE);
+                } catch (Exception e) {
+                    Log.e(TAG, "Error creating MediaProjectionManager", e);
                     return;
                 }
                 
-                // Request new permission through the activity result flow
-                UiThreadUtil.runOnUiThread(() -> {
-                    try {
-                        currentActivity.startActivityForResult(
-                            mediaProjectionManager.createScreenCaptureIntent(),
-                            REQUEST_MEDIA_PROJECTION
-                        );
-                    } catch (Exception e) {
-                        Log.e(TAG, "Error requesting screen capture permission", e);
-                    }
-                });
-            } else {
-                Log.d(TAG, "Screen sharing already enabled");
+                if (mediaProjectionManager == null) {
+                    Log.e(TAG, "Failed to create MediaProjectionManager");
+                    return;
+                }
+            }
+            
+            // Make sure we're completely cleaned up before requesting new permission
+            stopScreenCapture();
+            
+            // Request screen sharing permission
+            try {
+                Intent intent = mediaProjectionManager.createScreenCaptureIntent();
+                currentActivity.startActivityForResult(intent, REQUEST_MEDIA_PROJECTION);
+            } catch (Exception e) {
+                Log.e(TAG, "Error requesting screen capture permission", e);
+                stopScreenCapture();
             }
         } else {
-            // Disable screen sharing
-            if (android.os.Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                screenCapturerManager.endForeground();
-            }
-            
             stopScreenCapture();
-        }
-    }
-
-    private void startScreenCapture() {
-        // Safety check - don't create multiple screen tracks
-        if (isScreenShareEnabled || localScreenTrack != null) {
-            Log.d("RNTwilioScreenShare", "Screen share already active, skipping start");
-            return;
-        }
-        
-        try {
-            isScreenShareEnabled = true;
             
-            // Create screen capture video track with high quality format
-            VideoFormat screenFormat = buildScreenShareVideoFormat();
-            
-            // Simple log message that won't cause compatibility issues
-            Log.d("RNTwilioScreenShare", "Starting HD screen share (720p @ 30fps)");
-            
-            localScreenTrack = LocalVideoTrack.create(getContext(), true, screenCapturer, screenFormat);
-            
-            if (localScreenTrack == null) {
-                Log.e(TAG, "Failed to create screen capture video track");
-                isScreenShareEnabled = false;
-                return;
-            }
-            
-            // Publish the screen track
-            if (localParticipant != null) {
-                localParticipant.publishTrack(localScreenTrack);
-            }
-            
-            // Notify screen share state change
-            WritableMap event = new WritableNativeMap();
-            event.putBoolean("screenShareEnabled", true);
-            pushEvent(CustomTwilioVideoView.this, ON_SCREEN_SHARE_CHANGED, event);
-        } catch (Exception e) {
-            Log.e(TAG, "Error starting screen capture", e);
-            isScreenShareEnabled = false;
-            if (localScreenTrack != null) {
-                localScreenTrack.release();
-                localScreenTrack = null;
+            // Restore camera video if it was previously enabled
+            if (wasVideoEnabled) {
+                try {
+                    createLocalVideo(true, cameraType);
+                    if (localVideoTrack != null) {
+                        if (localParticipant != null) {
+                            localParticipant.publishTrack(localVideoTrack);
+                        }
+                        if (thumbnailVideoView != null) {
+                            localVideoTrack.addSink(thumbnailVideoView);
+                        }
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "Error restoring camera video", e);
+                }
             }
         }
     }
 
     private void stopScreenCapture() {
-        if (!isScreenShareEnabled && screenCapturer == null && localScreenTrack == null) {
-            // Nothing to stop
-            return;
-        }
-        
         try {
+            
             // Unpublish and release screen sharing track
-            if (localScreenTrack != null) {
+            if (localVideoTrack != null) {
                 if (localParticipant != null) {
-                    localParticipant.unpublishTrack(localScreenTrack);
+                    try {
+                        localParticipant.unpublishTrack(localVideoTrack);
+                    } catch (Exception e) {
+                        Log.e(TAG, "Error unpublishing video track", e);
+                    }
                 }
-                localScreenTrack.release();
-                localScreenTrack = null;
+                try {
+                    localVideoTrack.release();
+                } catch (Exception e) {
+                    Log.e(TAG, "Error releasing video track", e);
+                }
+                localVideoTrack = null;
             }
             
             // Stop screen capture and reset state
@@ -1070,23 +1133,29 @@ public class CustomTwilioVideoView extends View implements LifecycleEventListene
                     screenCapturer.stopCapture();
                 } catch (Exception e) {
                     Log.e(TAG, "Error stopping screen capturer", e);
-                } finally {
-                    screenCapturer = null;
+                }
+                screenCapturer = null;
+            }
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                if (screenCapturerManager != null) {
+                    try {
+                        screenCapturerManager.endForeground();
+                    } catch (Exception e) {
+                        Log.e(TAG, "Error ending foreground service", e);
+                    }
                 }
             }
             
-            // Always update state whether or not there were exceptions
             isScreenShareEnabled = false;
             
             // Notify screen share state change
             WritableMap event = new WritableNativeMap();
             event.putBoolean("screenShareEnabled", false);
             pushEvent(CustomTwilioVideoView.this, ON_SCREEN_SHARE_CHANGED, event);
+            
         } catch (Exception e) {
-            Log.e(TAG, "Error in stopScreenCapture", e);
-            // Ensure state is reset even if there's an exception
-            screenCapturer = null;
-            isScreenShareEnabled = false;
+            Log.e(TAG, "Error stopping screen capture", e);
         }
     }
 
